@@ -951,7 +951,7 @@ export function registerDefaultCommands(): void {
     command: (editor) => {
       const block = editor.getTextCursorPosition().block;
       const blocks = editor.topLevelBlocks;
-      const idx = blocks.findIndex((b) => => b.id === block.id);
+      const idx = blocks.findIndex((b) => b.id === block.id);
       if (idx < blocks.length - 1) {
         editor.moveBlocks([block], blocks[idx + 1], "after");
       }
