@@ -1,54 +1,84 @@
-"use client";
+import { useState, useCallback, useEffect } from "react";
 
-import * as React from "react";
+interface UseLocalStorageOptions<T> {
+  serializer?: (value: T) => string;
+  deserializer?: (value: string) => T;
+  onError?: (error: Error) => void;
+}
 
-type SetValue<T> = (value: T | ((prev: T) => T)) => void;
-
-function useLocalStorage<T>(
+export function useLocalStorage<T>(
   key: string,
-  initialValue: T
-): [T, SetValue<T>, () => void] {
-  const [storedValue, setStoredValue] = React.useState<T>(() => {
-    if (typeof window === "undefined") {
-      return initialValue;
-    }
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? (JSON.parse(item) as T) : initialValue;
-    } catch (error) {
-      console.error(`Error reading localStorage key "${key}":`, error);
-      return initialValue;
-    }
-  });
+  initialValue: T | (() => T)
+): [T, (value: T | ((prev: T) => T)) => void, () => void] {
+  const {
+    serializer = JSON.stringify,
+    deserializer = JSON.parse,
+    onError = console.error,
+  } = {} as UseLocalStorageOptions<T>;
 
-  const setValue: SetValue<T> = React.useCallback(
-    (value) => {
+  const getInitialValue = useCallback((): T => {
+    try {
+      if (typeof window === "undefined") return getResolvedInitial();
+      const item = window.localStorage.getItem(key);
+      return item !== null ? deserializer(item) : getResolvedInitial();
+    } catch (error) {
+      onError(error instanceof Error ? error : new Error(String(error)));
+      return getResolvedInitial();
+    }
+  }, [key, deserializer, onError]);
+
+  const getResolvedInitial = (): T => {
+    return initialValue instanceof Function ? initialValue() : initialValue;
+  };
+
+  const [storedValue, setStoredValue] = useState<T>(getInitialValue);
+
+  const setValue = useCallback(
+    (value: T | ((prev: T) => T)) => {
       try {
-        const valueToStore = value instanceof Function ? value(storedValue) : value;
-        setStoredValue(valueToStore);
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(key, JSON.stringify(valueToStore));
-        }
+        setStoredValue((prev) => {
+          const valueToStore = value instanceof Function ? value(prev) : value;
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(key, serializer(valueToStore));
+          }
+          return valueToStore;
+        });
       } catch (error) {
-        console.error(`Error setting localStorage key "${key}":`, error);
+        onError(error instanceof Error ? error : new Error(String(error)));
       }
     },
-    [key, storedValue]
+    [key, serializer, onError]
   );
 
-  const removeValue = React.useCallback(() => {
+  const removeValue = useCallback(() => {
     try {
-      setStoredValue(initialValue);
+      setStoredValue(getResolvedInitial());
       if (typeof window !== "undefined") {
         window.localStorage.removeItem(key);
       }
     } catch (error) {
-      console.error(`Error removing localStorage key "${key}":`, error);
+      onError(error instanceof Error ? error : new Error(String(error)));
     }
-  }, [key, initialValue]);
+  }, [key, onError]);
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key !== key) return;
+      try {
+        const newValue = e.newValue
+          ? deserializer(e.newValue)
+          : getResolvedInitial();
+        setStoredValue(newValue);
+      } catch {
+        // ignore parse errors from other tabs
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", handleStorageChange);
+      return () => window.removeEventListener("storage", handleStorageChange);
+    }
+  }, [key, deserializer]);
 
   return [storedValue, setValue, removeValue];
 }
-
-export { useLocalStorage };
-export type { SetValue };

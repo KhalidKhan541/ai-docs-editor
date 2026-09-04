@@ -1,99 +1,115 @@
-"use client";
-
-import * as React from "react";
-
-type Key = string | string[];
-type Callback = (event: KeyboardEvent) => void;
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface UseKeyPressOptions {
+  target?: React.RefObject<HTMLElement>;
   enabled?: boolean;
-  target?: EventTarget | null;
-  useCapture?: boolean;
 }
 
-function useKeyPress(
-  key: Key,
-  callback: Callback,
+export function useKeyPress(
+  key: string | string[],
+  callback: (event: KeyboardEvent) => void,
   options?: UseKeyPressOptions
-): void {
-  const { enabled = true, target = null, useCapture = true } = options || {};
+): boolean {
+  const [isPressed, setIsPressed] = useState(false);
+  const callbackRef = useRef(callback);
+  const { target, enabled = true } = options ?? {};
 
-  React.useEffect(() => {
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
     if (!enabled) return;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const targetElement = target?.current ?? document;
+
+    const handleKeyDown = (event: Event) => {
+      const keyboardEvent = event as KeyboardEvent;
       const keys = Array.isArray(key) ? key : [key];
-      if (keys.includes(event.key)) {
-        callback(event);
+
+      const matches = keys.some((k) => {
+        const parts = k.toLowerCase().split("+");
+        const mainKey = parts[parts.length - 1];
+        const needsCtrl = parts.includes("ctrl") || parts.includes("control");
+        const needsShift = parts.includes("shift");
+        const needsAlt = parts.includes("alt");
+        const needsMeta = parts.includes("meta") || parts.includes("cmd");
+
+        return (
+          keyboardEvent.key.toLowerCase() === mainKey &&
+          keyboardEvent.ctrlKey === needsCtrl &&
+          keyboardEvent.shiftKey === needsShift &&
+          keyboardEvent.altKey === needsAlt &&
+          keyboardEvent.metaKey === needsMeta
+        );
+      };
+
+      if (matches) {
+        setIsPressed(true);
+        callbackRef.current(keyboardEvent);
       }
     };
 
-    const targetElement = target || document;
-    targetElement.addEventListener("keydown", handleKeyDown, useCapture);
+    const handleKeyUp = (event: Event) => {
+      const keys = Array.isArray(key) ? key : [key];
+      const matches = keys.some(
+        (k) => (event as KeyboardEvent).key.toLowerCase() === k.toLowerCase()
+      );
+      if (matches) setIsPressed(false);
+    };
+
+    targetElement.addEventListener("keydown", handleKeyDown);
+    targetElement.addEventListener("keyup", handleKeyUp);
 
     return () => {
-      targetElement.removeEventListener("keydown", handleKeyDown, useCapture);
+      targetElement.removeEventListener("keydown", handleKeyDown);
+      targetElement.removeEventListener("keyup", handleKeyUp);
     };
-  }, [key, callback, enabled, target, useCapture]);
+  }, [key, target, enabled]);
+
+  return isPressed;
 }
 
-function useKeyPressMultiple(
-  keyMap: Record<string, Callback>,
+export function useKeyCombo(
+  combo: string,
+  callback: (event: KeyboardEvent) => void,
   options?: UseKeyPressOptions
 ): void {
-  const { enabled = true, target = null, useCapture = true } = options || {};
+  const { target, enabled = true } = options ?? {};
+  const callbackRef = useRef(callback);
 
-  React.useEffect(() => {
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
     if (!enabled) return;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const callback = keyMap[event.key];
-      if (callback) {
-        callback(event);
+    const targetElement = target?.current ?? document;
+
+    const handleKeyDown = (event: Event) => {
+      const e = event as KeyboardEvent;
+      const parts = combo.toLowerCase().split("+");
+      const mainKey = parts[parts.length - 1];
+
+      const needsCtrl = parts.includes("ctrl") || parts.includes("control");
+      const needsShift = parts.includes("shift");
+      const needsAlt = parts.includes("alt");
+      const needsMeta = parts.includes("meta") || parts.includes("cmd");
+
+      if (
+        e.key.toLowerCase() === mainKey &&
+        e.ctrlKey === needsCtrl &&
+        e.shiftKey === needsShift &&
+        e.altKey === needsAlt &&
+        e.metaKey === needsMeta
+      ) {
+        e.preventDefault();
+        callbackRef.current(e);
       }
     };
 
-    const targetElement = target || document;
-    targetElement.addEventListener("keydown", handleKeyDown, useCapture);
-
-    return () => {
-      targetElement.removeEventListener("keydown", handleKeyDown, useCapture);
-    };
-  }, [keyMap, enabled, target, useCapture]);
+    targetElement.addEventListener("keydown", handleKeyDown);
+    return () => targetElement.removeEventListener("keydown", handleKeyDown);
+  }, [combo, target, enabled]);
 }
-
-function useEscapeKey(callback: Callback, enabled = true): void {
-  useKeyPress("Escape", callback, { enabled });
-}
-
-function useEnterKey(callback: Callback, enabled = true): void {
-  useKeyPress("Enter", callback, { enabled });
-}
-
-function useArrowKeys(
-  callbacks: {
-    up?: Callback;
-    down?: Callback;
-    left?: Callback;
-    right?: Callback;
-  },
-  enabled = true
-): void {
-  useKeyPressMultiple(
-    {
-      ArrowUp: callbacks.up || (() => {}),
-      ArrowDown: callbacks.down || (() => {}),
-      ArrowLeft: callbacks.left || (() => {}),
-      ArrowRight: callbacks.right || (() => {}),
-    },
-    { enabled }
-  );
-}
-
-export {
-  useKeyPress,
-  useKeyPressMultiple,
-  useEscapeKey,
-  useEnterKey,
-  useArrowKeys,
-};

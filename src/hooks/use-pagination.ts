@@ -1,134 +1,144 @@
-"use client";
-
-import * as React from "react";
+import { useState, useCallback, useMemo } from "react";
 
 interface UsePaginationOptions {
-  totalItems: number;
-  itemsPerPage: number;
   initialPage?: number;
-  siblingCount?: number;
+  initialLimit?: number;
+  total?: number;
 }
 
 interface UsePaginationResult {
-  currentPage: number;
+  page: number;
+  limit: number;
+  total: number;
   totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  setPage: (page: number) => void;
+  nextPage: () => void;
+  prevPage: () => void;
+  firstPage: () => void;
+  lastPage: () => void;
+  setLimit: (limit: number) => void;
+  setTotal: (total: number) => void;
   goToPage: (page: number) => void;
-  goToNextPage: () => void;
-  goToPreviousPage: () => void;
-  goToFirstPage: () => void;
-  goToLastPage: () => void;
-  canGoNext: boolean;
-  canGoPrevious: boolean;
-  startIndex: number;
-  endIndex: number;
-  pages: (number | "ellipsis")[];
+  getOffset: () => number;
+  getPageRange: () => number[];
+  getVisiblePages: () => (number | "ellipsis")[];
 }
 
-function usePagination({
-  totalItems,
-  itemsPerPage,
-  initialPage = 1,
-  siblingCount = 1,
-}: UsePaginationOptions): UsePaginationResult {
-  const [currentPage, setCurrentPage] = React.useState(initialPage);
+export function usePagination(
+  options: UsePaginationOptions = {}
+): UsePaginationResult {
+  const {
+    initialPage = 1,
+    initialLimit = 20,
+    total: initialTotal = 0,
+  } = options;
 
-  const totalPages = React.useMemo(
-    () => Math.ceil(totalItems / itemsPerPage),
-    [totalItems, itemsPerPage]
+  const [page, setPageState] = useState(initialPage);
+  const [limit, setLimit] = useState(initialLimit);
+  const [total, setTotal] = useState(initialTotal);
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(total / limit)),
+    [total, limit]
   );
 
-  const canGoNext = currentPage < totalPages;
-  const canGoPrevious = currentPage > 1;
+  const hasNext = page < totalPages;
+  const hasPrev = page > 1;
+  const isFirst = page === 1;
+  const isLast = page === totalPages;
 
-  const startIndex = React.useMemo(
-    () => (currentPage - 1) * itemsPerPage,
-    [currentPage, itemsPerPage]
-  );
-
-  const endIndex = React.useMemo(
-    () => Math.min(startIndex + itemsPerPage - 1, totalItems - 1),
-    [startIndex, itemsPerPage, totalItems]
-  );
-
-  const generatePages = React.useCallback((): (number | "ellipsis")[] => {
-    const totalNumbers = siblingCount * 2 + 5;
-
-    if (totalPages <= totalNumbers) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
-
-    const leftSiblingIndex = Math.max(currentPage - siblingCount, 1);
-    const rightSiblingIndex = Math.min(currentPage + siblingCount, totalPages);
-
-    const showLeftEllipsis = leftSiblingIndex > 2;
-    const showRightEllipsis = rightSiblingIndex < totalPages - 1;
-
-    if (!showLeftEllipsis && showRightEllipsis) {
-      const leftItemCount = 3 + 2 * siblingCount;
-      const leftRange = Array.from({ length: leftItemCount }, (_, i) => i + 1);
-      return [...leftRange, "ellipsis", totalPages];
-    }
-
-    if (showLeftEllipsis && !showRightEllipsis) {
-      const rightItemCount = 3 + 2 * siblingCount;
-      const rightRange = Array.from(
-        { length: rightItemCount },
-        (_, i) => totalPages - rightItemCount + i + 1
-      );
-      return [1, "ellipsis", ...rightRange];
-    }
-
-    const middleRange = Array.from(
-      { length: rightSiblingIndex - leftSiblingIndex + 1 },
-      (_, i) => leftSiblingIndex + i
-    );
-    return [1, "ellipsis", ...middleRange, "ellipsis", totalPages];
-  }, [totalPages, currentPage, siblingCount]);
-
-  const pages = React.useMemo(() => generatePages(), [generatePages]);
-
-  const goToPage = React.useCallback(
-    (page: number) => {
-      const validPage = Math.max(1, Math.min(page, totalPages));
-      setCurrentPage(validPage);
+  const setPage = useCallback(
+    (newPage: number) => {
+      const clamped = Math.max(1, Math.min(newPage, totalPages));
+      setPageState(clamped);
     },
     [totalPages]
   );
 
-  const goToNextPage = React.useCallback(() => {
-    if (canGoNext) {
-      setCurrentPage((prev) => prev + 1);
+  const nextPage = useCallback(() => {
+    if (hasNext) setPageState((p) => p + 1);
+  }, [hasNext]);
+
+  const prevPage = useCallback(() => {
+    if (hasPrev) setPageState((p) => p - 1);
+  }, [hasPrev]);
+
+  const firstPage = useCallback(() => setPageState(1), []);
+
+  const lastPage = useCallback(
+    () => setPageState(totalPages),
+    [totalPages]
+  );
+
+  const goToPage = useCallback(
+    (p: number) => setPage(p),
+    [setPage]
+  );
+
+  const getOffset = useCallback(() => (page - 1) * limit, [page, limit]);
+
+  const getPageRange = useCallback(() => {
+    const range: number[] = [];
+    for (let i = 1; i <= totalPages; i++) {
+      range.push(i);
     }
-  }, [canGoNext]);
-
-  const goToPreviousPage = React.useCallback(() => {
-    if (canGoPrevious) {
-      setCurrentPage((prev) => prev - 1);
-    }
-  }, [canGoPrevious]);
-
-  const goToFirstPage = React.useCallback(() => {
-    setCurrentPage(1);
-  }, []);
-
-  const goToLastPage = React.useCallback(() => {
-    setCurrentPage(totalPages);
+    return range;
   }, [totalPages]);
 
+  const getVisiblePages = useCallback((): (number | "ellipsis")[] => {
+    const delta = 2;
+    const range: (number | "ellipsis")[] = [];
+    const rangeWithDots: (number | "ellipsis")[] = [];
+
+    let l: number;
+    for (let i = 1; i <= totalPages; i++) {
+      if (
+        i === 1 ||
+        i === totalPages ||
+        (i >= page - delta && i <= page + delta)
+      ) {
+        range.push(i);
+      }
+    }
+
+    for (const i of range) {
+      if (l) {
+        if (i - l === 2) {
+          rangeWithDots.push(l + 1);
+        } else if (i - l > 2) {
+          rangeWithDots.push("ellipsis");
+        }
+      }
+      rangeWithDots.push(i);
+      l = i;
+    }
+
+    return rangeWithDots;
+  }, [page, totalPages]);
+
   return {
-    currentPage,
+    page,
+    limit,
+    total,
     totalPages,
+    hasNext,
+    hasPrev,
+    isFirst,
+    isLast,
+    setPage,
+    nextPage,
+    prevPage,
+    firstPage,
+    lastPage,
+    setLimit,
+    setTotal,
     goToPage,
-    goToNextPage,
-    goToPreviousPage,
-    goToFirstPage,
-    goToLastPage,
-    canGoNext,
-    canGoPrevious,
-    startIndex,
-    endIndex,
-    pages,
+    getOffset,
+    getPageRange,
+    getVisiblePages,
   };
 }
-
-export { usePagination };

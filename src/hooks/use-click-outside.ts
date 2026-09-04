@@ -1,46 +1,49 @@
-"use client";
+import { useEffect, useRef, type RefObject } from "react";
 
-import * as React from "react";
-
-function useClickOutside<T extends HTMLElement = HTMLElement>(
-  handler: (event: MouseEvent | TouchEvent) => void,
+export function useClickOutside<T extends HTMLElement = HTMLElement>(
+  handler: () => void,
   options?: {
     enabled?: boolean;
-    nodes?: Array<React.RefObject<T>>;
+    exclude?: RefObject<HTMLElement>[];
   }
-): React.RefObject<T> {
-  const ref = React.useRef<T>(null);
-  const { enabled = true, nodes = [] } = options || {};
+): RefObject<T> {
+  const ref = useRef<T>(null);
+  const handlerRef = useRef(handler);
+  const { enabled = true, exclude = [] } = options ?? {};
 
-  React.useEffect(() => {
+  useEffect(() => {
+    handlerRef.current = handler;
+  }, [handler]);
+
+  useEffect(() => {
     if (!enabled) return;
 
-    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+    const handleClick = (event: MouseEvent) => {
       const target = event.target as Node;
 
-      if (ref.current && ref.current.contains(target)) {
-        return;
+      if (ref.current?.contains(target)) return;
+
+      for (const excludedRef of exclude) {
+        if (excludedRef.current?.contains(target)) return;
       }
 
-      for (const node of nodes) {
-        if (node.current && node.current.contains(target)) {
-          return;
-        }
-      }
-
-      handler(event);
+      handlerRef.current();
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("touchstart", handleClickOutside);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        handlerRef.current();
+      }
+    };
+
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleEscape);
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleEscape);
     };
-  }, [handler, enabled, nodes]);
+  }, [enabled, exclude]);
 
   return ref;
 }
-
-export { useClickOutside };
