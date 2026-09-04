@@ -1,100 +1,167 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from "next/server";
+import prismadb from "@/lib/prisma";
+import {
+  successResponse,
+  errorResponse,
+  getCurrentUser,
+  paginateQuery,
+  buildPaginationMeta,
+  getOrgMembership,
+} from "@/lib/utils";
+import { createDocumentSchema } from "@/lib/validators";
 
-interface Document {
-  id: string
-  title: string
-  blocks: unknown[]
-  ownerId: string
-  createdAt: string
-  updatedAt: string
-}
-
-const documentsDb: Map<string, Document> = new Map()
-
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const id = searchParams.get('id')
-
-  if (id) {
-    const doc = documentsDb.get(id)
-    if (!doc) {
-      return NextResponse.json({ error: 'Document not found' }, { status: 404 })
-    }
-    return NextResponse.json(doc)
-  }
-
-  const docs = Array.from(documentsDb.values())
-  return NextResponse.json(docs)
-}
-
-export async function POST(request: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const body = await request.json()
-    const { title, ownerId, blocks } = body
+    const user = await getCurrentUser();
+    if (!user) return errorResponse("Unauthorized", 401);
 
-    if (!title || !ownerId) {
-      return NextResponse.json(
-        { error: 'Title and ownerId are required' },
-        { status: 400 }
-      )
+    const { searchParams } = new URL(req.url);
+    const orgId = searchParams.get("orgId");
+    const page = parseInt(searchParams.get("page") ?? "1");
+    const limit = parseInt(searchParams.get("limit") ?? "20");
+    const folderId = searchParams.get("folderId");
+    const isPublished = searchParams.get("isPublished");
+    const isArchived = searchParams.get("isArchived");
+    const isTemplate = searchParams.get("isTemplate");
+    const sortBy = searchParams.get("sortBy") ?? "updatedAt";
+    const sortOrder = searchParams.get("sortOrder") ?? "desc";
+    const search = searchParams.get("search");
+    const tag = searchParams.get("tag");
+
+    if (!orgId) return errorResponse("orgId is required", 400);
+
+    const membership = await getOrgMembership(user.id, orgId);
+    if (!membership) return errorResponse("Access denied", 403);
+
+    const { skip, take } = paginateQuery(page, limit);
+
+    const where: Record<string, unknown> = { orgId };
+
+    if (folderId) where.folderId = folderId;
+    if (isPublished !== null) where.isPublished = isPublished === "true";
+    if (isArchived !== null) where.isArchived = isArchived === "true";
+    if (isTemplate !== null) where.isTemplate = isTemplate === "true";
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { excerpt: { contains: search, mode: "insensitive" } },
+      ];
+    }
+    if (tag) {
+      where.tags = { some: { name: tag } };
     }
 
-    const doc: Document = {
-      id: Math.random().toString(36).substring(2, 15),
-      title,
-      blocks: blocks ?? [],
-      ownerId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
+    const order = { [sortBy]: sortOrder };
 
-    documentsDb.set(doc.id, doc)
-    return NextResponse.json(doc, { status: 201 })
-  } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    const [documents, total] = await Promise.all([
+      prismadb.document.findMany({
+        where,
+        include: {
+          author: {
+            select: { id: true, name: true, avatar: true },
+          },
+          folder: { select: { id: true, name: true } },
+          tags: { select: { name: true } },
+          _count: {
+            select: { comments: true, suggestions: true, versions: true },
+          },
+        },
+        orderBy: order,
+        skip,
+        take,
+      }),
+      prismadb.document.count({ where }),
+    ]);
+
+    return successResponse({
+      documents,
+      pagination: buildPaginationMeta(total, page, limit),
+    });
+  } catch (error) {
+    console.error("[DOCUMENTS_GET]", error);
+    return errorResponse("Internal server error", 500);
   }
 }
 
-export async function PUT(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json()
-    const { id, title, blocks } = body
+    const user = await getCurrentUser();
+    if (!user) return errorResponse("Unauthorized", 401);
 
-    if (!id) {
-      return NextResponse.json({ error: 'Document ID is required' }, { status: 400 })
+    const body = await req.json();
+    const result = createDocumentSchema.safeParse(body);
+
+    if (!result.success) {
+      const errors = result.error.flatten().fieldErrors;
+      return errorResponse(
+        Object.values(errors)
+          .flat()
+          .join(", "),
+        400
+      );
     }
 
-    const doc = documentsDb.get(id)
-    if (!doc) {
-      return NextResponse.json({ error: 'Document not found' }, { status: 404 })
+    const { title, content, folderId, emoji, coverImage, isTemplate } = result.data;
+
+    const orgId = body.orgId;
+    if (!orgId) return errorResponse("orgId is required", 400);
+
+    const membership = await getOrgMembership(user.id, orgId);
+    if (!membership) return errorResponse("Access denied", 403);
+
+    if (folderId) {
+      const folder = await prismadb.folder.findUnique({
+        where: { id: folderId },
+      });
+      if (!folder || folder.orgId !== orgId) {
+        return errorResponse("Invalid folder", 400);
+      }
     }
 
-    const updated: Document = {
-      ...doc,
-      ...(title && { title }),
-      ...(blocks && { blocks }),
-      updatedAt: new Date().toISOString(),
-    }
+    const docContent = content ?? {};
+    const wordCount = JSON.stringify(docContent)
+      .replace(/<[^>]*>/g, "")
+      .replace(/[^\w\s]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+    const charCount = JSON.stringify(docContent).replace(/<[^>]*>/g, "").length;
 
-    documentsDb.set(id, updated)
-    return NextResponse.json(updated)
-  } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    const document = await prismadb.document.create({
+      data: {
+        title: title ?? "Untitled",
+        content: docContent as object,
+        folderId: folderId ?? null,
+        emoji: emoji ?? null,
+        coverImage: coverImage ?? null,
+        isTemplate: isTemplate ?? false,
+        wordCount,
+        charCount,
+        authorId: user.id,
+        orgId,
+      },
+      include: {
+        author: {
+          select: { id: true, name: true, avatar: true },
+        },
+        _count: {
+          select: { comments: true, suggestions: true, versions: true },
+        },
+      },
+    });
+
+    await prismadb.documentVersion.create({
+      data: {
+        version: 1,
+        title: document.title,
+        content: document.content as object,
+        authorId: user.id,
+        documentId: document.id,
+      },
+    });
+
+    return successResponse(document, 201);
+  } catch (error) {
+    console.error("[DOCUMENTS_POST]", error);
+    return errorResponse("Internal server error", 500);
   }
-}
-
-export async function DELETE(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const id = searchParams.get('id')
-
-  if (!id) {
-    return NextResponse.json({ error: 'Document ID is required' }, { status: 400 })
-  }
-
-  if (!documentsDb.has(id)) {
-    return NextResponse.json({ error: 'Document not found' }, { status: 404 })
-  }
-
-  documentsDb.delete(id)
-  return NextResponse.json({ success: true })
 }

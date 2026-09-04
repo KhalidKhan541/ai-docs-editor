@@ -1,156 +1,126 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from "next/server";
+import prismadb from "@/lib/prisma";
+import {
+  successResponse,
+  errorResponse,
+  getCurrentUser,
+  paginateQuery,
+  buildPaginationMeta,
+  getOrgMembership,
+} from "@/lib/utils";
+import { templateSchema } from "@/lib/validators";
 
-interface Template {
-  id: string
-  name: string
-  description: string
-  category: string
-  blocks: unknown[]
-  isPublic: boolean
-  createdBy: string
-  createdAt: string
-}
-
-const templatesDb: Map<string, Template> = new Map()
-
-const defaultTemplates: Template[] = [
-  {
-    id: 'blank',
-    name: 'Blank Document',
-    description: 'Start with a blank document',
-    category: 'basic',
-    blocks: [{ type: 'paragraph', content: [{ text: '' }] }],
-    isPublic: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'meeting-notes',
-    name: 'Meeting Notes',
-    description: 'Template for meeting notes',
-    category: 'business',
-    blocks: [
-      { type: 'heading', content: [{ text: 'Meeting Notes' }] },
-      { type: 'paragraph', content: [{ text: 'Date: ' }] },
-      { type: 'paragraph', content: [{ text: 'Attendees: ' }] },
-      { type: 'heading', content: [{ text: 'Agenda' }] },
-      { type: 'bulletList', content: [{ text: '' }] },
-      { type: 'heading', content: [{ text: 'Action Items' }] },
-      { type: 'todo', content: [{ text: '' }] },
-    ],
-    isPublic: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'project-proposal',
-    name: 'Project Proposal',
-    description: 'Template for project proposals',
-    category: 'business',
-    blocks: [
-      { type: 'heading', content: [{ text: 'Project Proposal' }] },
-      { type: 'heading', content: [{ text: 'Executive Summary' }], props: { level: 2 } },
-      { type: 'paragraph', content: [{ text: '' }] },
-      { type: 'heading', content: [{ text: 'Objectives' }], props: { level: 2 } },
-      { type: 'bulletList', content: [{ text: '' }] },
-      { type: 'heading', content: [{ text: 'Timeline' }], props: { level: 2 } },
-      { type: 'paragraph', content: [{ text: '' }] },
-    ],
-    isPublic: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'technical-doc',
-    name: 'Technical Documentation',
-    description: 'Template for technical docs',
-    category: 'technical',
-    blocks: [
-      { type: 'heading', content: [{ text: 'Technical Documentation' }] },
-      { type: 'heading', content: [{ text: 'Overview' }], props: { level: 2 } },
-      { type: 'paragraph', content: [{ text: '' }] },
-      { type: 'heading', content: [{ text: 'API Reference' }], props: { level: 2 } },
-      { type: 'code', content: [{ text: '' }], props: { language: 'javascript' } },
-      { type: 'heading', content: [{ text: 'Examples' }], props: { level: 2 } },
-      { type: 'paragraph', content: [{ text: '' }] },
-    ],
-    isPublic: true,
-    createdBy: 'system',
-    createdAt: new Date().toISOString(),
-  },
-]
-
-defaultTemplates.forEach((t) => templatesDb.set(t.id, t))
-
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const id = searchParams.get('id')
-  const category = searchParams.get('category')
-
-  if (id) {
-    const template = templatesDb.get(id)
-    if (!template) {
-      return NextResponse.json({ error: 'Template not found' }, { status: 404 })
-    }
-    return NextResponse.json(template)
-  }
-
-  let templates = Array.from(templatesDb.values()).filter((t) => t.isPublic)
-
-  if (category) {
-    templates = templates.filter((t) => t.category === category)
-  }
-
-  return NextResponse.json(templates)
-}
-
-export async function POST(request: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const body = await request.json()
-    const { name, description, category, blocks, createdBy } = body
+    const user = await getCurrentUser();
+    if (!user) return errorResponse("Unauthorized", 401);
 
-    if (!name || !createdBy) {
-      return NextResponse.json(
-        { error: 'Name and createdBy are required' },
-        { status: 400 }
-      )
+    const { searchParams } = new URL(req.url);
+    const orgId = searchParams.get("orgId");
+    const page = parseInt(searchParams.get("page") ?? "1");
+    const limit = parseInt(searchParams.get("limit") ?? "20");
+    const category = searchParams.get("category");
+    const search = searchParams.get("search");
+    const includePublic = searchParams.get("includePublic") !== "false";
+    const { skip, take } = paginateQuery(page, limit);
+
+    if (!orgId) return errorResponse("orgId is required", 400);
+
+    const membership = await getOrgMembership(user.id, orgId);
+    if (!membership) return errorResponse("Access denied", 403);
+
+    const where: Record<string, unknown> = {
+      OR: [{ orgId }, ...(includePublic ? [{ isPublic: true }] : [])],
+    };
+
+    if (category) where.category = category;
+    if (search) {
+      where.AND = [
+        {
+          OR: [
+            { title: { contains: search, mode: "insensitive" } },
+            { description: { contains: search, mode: "insensitive" } },
+          ],
+        },
+      ];
     }
 
-    const template: Template = {
-      id: Math.random().toString(36).substring(2, 15),
-      name,
-      description: description ?? '',
-      category: category ?? 'custom',
-      blocks: blocks ?? [],
-      isPublic: false,
-      createdBy,
-      createdAt: new Date().toISOString(),
-    }
+    const [templates, total] = await Promise.all([
+      prismadb.template.findMany({
+        where,
+        include: {
+          author: {
+            select: { id: true, name: true, avatar: true },
+          },
+          org: {
+            select: { id: true, name: true },
+          },
+        },
+        orderBy: { useCount: "desc" },
+        skip,
+        take,
+      }),
+      prismadb.template.count({ where }),
+    ]);
 
-    templatesDb.set(template.id, template)
-    return NextResponse.json(template, { status: 201 })
-  } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    return successResponse({
+      templates,
+      pagination: buildPaginationMeta(total, page, limit),
+    });
+  } catch (error) {
+    console.error("[TEMPLATES_GET]", error);
+    return errorResponse("Internal server error", 500);
   }
 }
 
-export async function DELETE(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const id = searchParams.get('id')
+export async function POST(req: NextRequest) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return errorResponse("Unauthorized", 401);
 
-  if (!id) {
-    return NextResponse.json({ error: 'Template ID is required' }, { status: 400 })
+    const body = await req.json();
+    const result = templateSchema.safeParse(body);
+
+    if (!result.success) {
+      const errors = result.error.flatten().fieldErrors;
+      return errorResponse(
+        Object.values(errors)
+          .flat()
+          .join(", "),
+        400
+      );
+    }
+
+    const orgId = body.orgId;
+    if (!orgId) return errorResponse("orgId is required", 400);
+
+    const membership = await getOrgMembership(user.id, orgId);
+    if (!membership) return errorResponse("Access denied", 403);
+
+    if (membership.role === "VIEWER") {
+      return errorResponse("Insufficient permissions", 403);
+    }
+
+    const template = await prismadb.template.create({
+      data: {
+        title: result.data.title,
+        description: result.data.description,
+        content: (result.data.content ?? {}) as object,
+        category: result.data.category,
+        isPublic: result.data.isPublic ?? false,
+        authorId: user.id,
+        orgId,
+      },
+      include: {
+        author: {
+          select: { id: true, name: true, avatar: true },
+        },
+      },
+    });
+
+    return successResponse(template, 201);
+  } catch (error) {
+    console.error("[TEMPLATES_POST]", error);
+    return errorResponse("Internal server error", 500);
   }
-
-  const template = templatesDb.get(id)
-  if (!template) {
-    return NextResponse.json({ error: 'Template not found' }, { status: 404 })
-  }
-
-  if (template.createdBy === 'system') {
-    return NextResponse.json({ error: 'Cannot delete default templates' }, { status: 403 })
-  }
-
-  templatesDb.delete(id)
-  return NextResponse.json({ success: true })
 }
