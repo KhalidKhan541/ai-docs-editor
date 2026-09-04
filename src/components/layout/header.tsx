@@ -1,186 +1,135 @@
 "use client";
 
-import * as React from "react";
-import { Bell, Menu, Search, Settings, ChevronDown } from "lucide-react";
+import { useState } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft, MessageSquare, History, Globe, Share2, MoreHorizontal,
+  Star, Download, Trash2, Copy, Eye, Lock, Users, ChevronDown
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarGroup } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown";
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 
-interface HeaderProps extends React.HTMLAttributes<HTMLDivElement> {
-  title?: string;
-  subtitle?: string;
-  onMenuClick?: () => void;
-  showMenu?: boolean;
-  user?: {
-    name: string;
-    email: string;
-    image?: string;
-  };
-  notifications?: Array<{
-    id: string;
-    title: string;
-    message: string;
-    read: boolean;
-    timestamp: string;
-  }>;
-  collaborators?: Array<{
-    name: string;
-    image?: string;
-  }>;
+interface HeaderProps {
+  title: string;
+  onTitleChange?: (title: string) => void;
+  isStarred?: boolean;
+  onStarToggle?: () => void;
+  isSaving?: boolean;
+  lastSaved?: Date;
+  wordCount?: number;
+  documentId: string;
 }
 
-function Header({
+export default function Header({
   title,
-  subtitle,
-  onMenuClick,
-  showMenu = false,
-  user,
-  notifications = [],
-  collaborators,
-  className,
-  children,
-  ...props
+  onTitleChange,
+  isStarred = false,
+  onStarToggle,
+  isSaving = false,
+  lastSaved,
+  wordCount = 0,
+  documentId,
 }: HeaderProps) {
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  };
 
   return (
-    <header
-      className={cn(
-        "flex h-14 items-center justify-between border-b bg-background px-4 lg:px-6",
-        className
-      )}
-      {...props}
-    >
-      <div className="flex items-center gap-4">
-        {showMenu && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onMenuClick}
-            className="lg:hidden"
-          >
-            <Menu className="h-5 w-5" />
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 px-4">
+      <div className="flex items-center gap-3">
+        <Link href="/">
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <ArrowLeft className="h-4 w-4" />
           </Button>
-        )}
-        {title && (
-          <div>
-            <h1 className="text-lg font-semibold">{title}</h1>
-            {subtitle && (
-              <p className="text-sm text-muted-foreground">{subtitle}</p>
-            )}
-          </div>
-        )}
-        {children}
+        </Link>
+        <Separator orientation="vertical" className="h-6" />
+        <div className="flex items-center gap-2">
+          <span className="text-xl">📋</span>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => onTitleChange?.(e.target.value)}
+            className="border-none bg-transparent text-lg font-semibold text-gray-900 outline-none focus:ring-0"
+          />
+          {onStarToggle && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onStarToggle}>
+              <Star className={cn("h-4 w-4", isStarred ? "fill-yellow-400 text-yellow-400" : "text-gray-400")} />
+            </Button>
+          )}
+        </div>
+        <Badge variant="outline" className="text-xs">
+          {isSaving ? (
+            <span className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-500" /> Saving...
+            </span>
+          ) : lastSaved ? (
+            <span className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> Saved {formatTime(lastSaved)}
+            </span>
+          ) : (
+            "Draft"
+          )}
+        </Badge>
       </div>
 
       <div className="flex items-center gap-2">
-        {collaborators && collaborators.length > 0 && (
-          <AvatarGroup avatars={collaborators} max={3} size="sm" className="mr-2" />
+        {wordCount > 0 && (
+          <>
+            <span className="text-xs text-gray-500">{wordCount.toLocaleString()} words</span>
+            <Separator orientation="vertical" className="h-6" />
+          </>
         )}
-
-        <Button variant="ghost" size="icon-sm">
-          <Search className="h-4 w-4" />
+        <div className="flex -space-x-2">
+          {["bg-violet-500", "bg-blue-500", "bg-green-500"].map((color, i) => (
+            <div key={i} className={`h-6 w-6 rounded-full ${color} border-2 border-white flex items-center justify-center text-[8px] text-white font-bold`}>
+              {["JD", "JS", "AC"][i]}
+            </div>
+          ))}
+        </div>
+        <Separator orientation="vertical" className="h-6" />
+        <Link href={`/documents/${documentId}/comments`}>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+        </Link>
+        <Link href={`/documents/${documentId}/versions`}>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <History className="h-4 w-4" />
+          </Button>
+        </Link>
+        <Link href={`/documents/${documentId}/publish`}>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Globe className="h-4 w-4" />
+          </Button>
+        </Link>
+        <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Share2 className="h-4 w-4" />
         </Button>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="relative">
-              <Bell className="h-4 w-4" />
-              {unreadCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
-              )}
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem><Download className="mr-2 h-4 w-4" /> Export as PDF</DropdownMenuItem>
+            <DropdownMenuItem><Download className="mr-2 h-4 w-4" /> Export as Markdown</DropdownMenuItem>
+            <DropdownMenuItem><Copy className="mr-2 h-4 w-4" /> Duplicate</DropdownMenuItem>
+            <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> Preview</DropdownMenuItem>
             <DropdownMenuSeparator />
-            {notifications.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
-                No notifications
-              </div>
-            ) : (
-              notifications.slice(0, 5).map((notification) => (
-                <DropdownMenuItem
-                  key={notification.id}
-                  className={cn(
-                    "flex flex-col items-start gap-1 p-3",
-                    !notification.read && "bg-accent/50"
-                  )}
-                >
-                  <span className="text-sm font-medium">{notification.title}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {notification.message}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {notification.timestamp}
-                  </span>
-                </DropdownMenuItem>
-              ))
-            )}
+            <DropdownMenuItem><Lock className="mr-2 h-4 w-4" /> Lock editing</DropdownMenuItem>
+            <DropdownMenuItem><Users className="mr-2 h-4 w-4" /> Manage access</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-red-600"><Trash2 className="mr-2 h-4 w-4" /> Move to trash</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Button variant="ghost" size="icon-sm">
-          <Settings className="h-4 w-4" />
-        </Button>
-
-        {user && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-2">
-                <Avatar
-                  src={user.image}
-                  name={user.name}
-                  size="sm"
-                />
-                <span className="hidden md:inline-flex">{user.name}</span>
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>
-                <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium">{user.name}</p>
-                  <p className="text-xs text-muted-foreground">{user.email}</p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>Profile</DropdownMenuItem>
-              <DropdownMenuItem>Settings</DropdownMenuItem>
-              <DropdownMenuItem>Team</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
       </div>
     </header>
   );
 }
-
-interface HeaderActionsProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-function HeaderActions({ children, className }: HeaderActionsProps) {
-  return (
-    <div className={cn("flex items-center gap-2", className)}>
-      {children}
-    </div>
-  );
-}
-
-export { Header, HeaderActions };

@@ -1,54 +1,53 @@
-"use client";
+import { useState, useCallback } from "react";
 
-import * as React from "react";
+export function useToggle(
+  initialValue = false
+): [boolean, { on: () => void; off: () => void; toggle: () => void; set: (value: boolean) => void }] {
+  const [value, setValue] = useState(initialValue);
 
-function useToggle(initialValue = false): [boolean, () => void, (value: boolean) => void] {
-  const [value, setValue] = React.useState(initialValue);
+  const on = useCallback(() => setValue(true), []);
+  const off = useCallback(() => setValue(false), []);
+  const toggle = useCallback(() => setValue((v) => !v), []);
+  const set = useCallback((v: boolean) => setValue(v), []);
 
-  const toggle = React.useCallback(() => {
-    setValue((prev) => !prev);
-  }, []);
-
-  const setValueDirect = React.useCallback((newValue: boolean) => {
-    setValue(newValue);
-  }, []);
-
-  return [value, toggle, setValueDirect];
+  return [value, { on, off, toggle, set }];
 }
 
-function useCounter(
+export function useCounter(
   initialValue = 0,
   options?: { min?: number; max?: number; step?: number }
-): {
-  count: number;
-  increment: () => void;
-  decrement: () => void;
-  reset: () => void;
-  set: (value: number) => void;
-} {
-  const { min = -Infinity, max = Infinity, step = 1 } = options || {};
-  const [count, setCount] = React.useState(initialValue);
+): [number, { increment: () => void; decrement: () => void; reset: () => void; set: (value: number) => void }] {
+  const { min = -Infinity, max = Infinity, step = 1 } = options ?? {};
+  const [value, setValue] = useState(initialValue);
 
-  const increment = React.useCallback(() => {
-    setCount((prev) => Math.min(prev + step, max));
-  }, [step, max]);
+  const increment = useCallback(
+    () => setValue((v) => Math.min(v + step, max)),
+    [step, max]
+  );
 
-  const decrement = React.useCallback(() => {
-    setCount((prev) => Math.max(prev - step, min));
-  }, [step, min]);
+  const decrement = useCallback(
+    () => setValue((v) => Math.max(v - step, min)),
+    [step, min]
+  );
 
-  const reset = React.useCallback(() => {
-    setCount(initialValue);
-  }, [initialValue]);
+  const reset = useCallback(() => setValue(initialValue), [initialValue]);
 
-  const set = React.useCallback(
-    (value: number) => {
-      setCount(Math.max(min, Math.min(max, value)));
-    },
+  const set = useCallback(
+    (v: number) => setValue(Math.max(min, Math.min(max, v))),
     [min, max]
   );
 
-  return { count, increment, decrement, reset, set };
+  return [value, { increment, decrement, reset, set }];
 }
 
-export { useToggle, useCounter };
+export function useBoolean(
+  initialValue = false
+): [boolean, { setTrue: () => void; setFalse: () => void; toggle: () => void }] {
+  const [value, setValue] = useState(initialValue);
+
+  const setTrue = useCallback(() => setValue(true), []);
+  const setFalse = useCallback(() => setValue(false), []);
+  const toggle = useCallback(() => setValue((v) => !v), []);
+
+  return [value, { setTrue, setFalse, toggle }];
+}

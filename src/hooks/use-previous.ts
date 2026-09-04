@@ -1,27 +1,25 @@
-"use client";
+import { useRef, useEffect } from "react";
 
-import * as React from "react";
+export function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T | undefined>(undefined);
 
-function usePrevious<T>(value: T): T | undefined {
-  const ref = React.useRef<T | undefined>(undefined);
-
-  React.useEffect(() => {
+  useEffect(() => {
     ref.current = value;
   }, [value]);
 
   return ref.current;
 }
 
-function usePreviousDistinct<T>(value: T, compare?: (a: T, b: T) => boolean): T | undefined {
-  const ref = React.useRef<T | undefined>(undefined);
-  const currentRef = React.useRef<T>(value);
+export function usePreviousDistinct<T>(
+  value: T,
+  compare?: (a: T, b: T) => boolean
+): T | undefined {
+  const ref = useRef<T | undefined>(undefined);
+  const currentRef = useRef<T>(value);
 
-  React.useEffect(() => {
-    const isEqual = compare
-      ? compare(currentRef.current, value)
-      : currentRef.current === value;
-
-    if (!isEqual) {
+  useEffect(() => {
+    const compareFn = compare ?? ((a, b) => a === b);
+    if (!compareFn(currentRef.current, value)) {
       ref.current = currentRef.current;
       currentRef.current = value;
     }
@@ -29,5 +27,3 @@ function usePreviousDistinct<T>(value: T, compare?: (a: T, b: T) => boolean): T 
 
   return ref.current;
 }
-
-export { usePrevious, usePreviousDistinct };

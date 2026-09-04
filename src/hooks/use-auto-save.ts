@@ -1,79 +1,96 @@
-"use client";
-
-import * as React from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 interface UseAutoSaveOptions<T> {
-  value: T;
-  onSave: (value: T) => Promise<void>;
-  delay?: number;
+  data: T;
+  onSave: (data: T) => Promise<void>;
+  interval?: number;
   enabled?: boolean;
+  onError?: (error: Error) => void;
 }
 
 interface UseAutoSaveResult {
-  isSaving: boolean;
-  lastSaved: Date | null;
-  error: Error | null;
   save: () => Promise<void>;
+  lastSaved: Date | null;
+  isSaving: boolean;
+  hasUnsavedChanges: boolean;
 }
 
-function useAutoSave<T>({
-  value,
+export function useAutoSave<T>({
+  data,
   onSave,
-  delay = 1000,
+  interval = 30_000,
   enabled = true,
+  onError,
 }: UseAutoSaveOptions<T>): UseAutoSaveResult {
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [lastSaved, setLastSaved] = React.useState<Date | null>(null);
-  const [error, setError] = React.useState<Error | null>(null);
-  const timeoutRef = React.useRef<NodeJS.Timeout | null>(null);
-  const valueRef = React.useRef<T>(value);
-  const onSaveRef = React.useRef(onSave);
+  const savedDataRef = useRef<string>("");
+  const lastSavedRef = useRef<Date | null>(null);
+  const isSavingRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dataRef = useRef(data);
 
-  valueRef.current = value;
-  onSaveRef.current = onSave;
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
-  const save = React.useCallback(async () => {
-    setIsSaving(true);
-    setError(null);
+  const save = useCallback(async () => {
+    if (isSavingRef.current) return;
+
+    const currentData = dataRef.current;
+    const serialized = JSON.stringify(currentData);
+
+    if (serialized === savedDataRef.current) return;
+
+    isSavingRef.current = true;
 
     try {
-      await onSaveRef.current(valueRef.current);
-      setLastSaved(new Date());
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      setError(error);
+      await onSave(currentData);
+      savedDataRef.current = serialized;
+      lastSavedRef.current = new Date();
+    } catch (error) {
+      onError?.(error instanceof Error ? error : new Error(String(error)));
     } finally {
-      setIsSaving(false);
+      isSavingRef.current = false;
     }
-  }, []);
+  }, [onSave, onError]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!enabled) return;
 
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
+    timerRef.current = setInterval(save, interval);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [enabled, interval, save]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      const currentData = dataRef.current;
+      const serialized = JSON.stringify(currentData);
+
+      if (serialized !== savedDataRef.current) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", handleBeforeUnload);
+      return () =>
+        window.removeEventListener("beforeunload", handleBeforeUnload);
     }
-
-    timeoutRef.current = setTimeout(() => {
-      save();
-    }, delay);
-
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, [value, delay, enabled, save]);
-
-  React.useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
   }, []);
 
-  return { isSaving, lastSaved, error, save };
-}
+  const hasUnsavedChanges =
+    JSON.stringify(data) !== savedDataRef.current && savedDataRef.current !== "";
 
-export { useAutoSave };
+  return {
+    save,
+    lastSaved: lastSavedRef.current,
+    isSaving: isSavingRef.current,
+    hasUnsavedChanges,
+  };
+}
