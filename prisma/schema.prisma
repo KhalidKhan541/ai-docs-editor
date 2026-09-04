@@ -1,0 +1,404 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String
+  avatar        String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts     Account[]
+  sessions     Session[]
+  ownedOrgs    Organization[]  @relation("OrgOwner")
+  memberships  Membership[]
+  documents    Document[]      @relation("DocAuthor")
+  comments     Comment[]       @relation("CommentAuthor")
+  replies      CommentReply[]  @relation("ReplyAuthor")
+  suggestions  Suggestion[]    @relation("SuggestionAuthor")
+  templates    Template[]      @relation("TemplateAuthor")
+  activities   Activity[]
+  notifications Notification[]
+  subscription Subscription?
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  plan      Plan     @default(FREE)
+  stripeId  String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerId   String
+  owner     User       @relation("OrgOwner", fields: [ownerId], references: [id])
+  members   Membership[]
+  documents Document[]
+  templates Template[]
+  folders   Folder[]
+
+  @@index([slug])
+  @@index([ownerId])
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  role   MemberRole @default(MEMBER)
+  userId String
+  orgId  String
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+model Document {
+  id          String       @id @default(cuid())
+  title       String       @default("Untitled")
+  content     Json         @default("{}")
+  excerpt     String?
+  isPublished Boolean      @default(false)
+  isArchived  Boolean      @default(false)
+  isTemplate  Boolean      @default(false)
+  coverImage  String?
+  emoji       String?
+  wordCount   Int          @default(0)
+  charCount   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  publishedAt DateTime?
+
+  authorId String
+  author   User         @relation("DocAuthor", fields: [authorId], references: [id])
+  orgId    String
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  folderId String?
+  folder   Folder?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  blocks       Block[]
+  permissions  Permission[]
+  versions     DocumentVersion[]
+  comments     Comment[]
+  suggestions  Suggestion[]
+  activities   Activity[]
+  tags         DocumentTag[]
+
+  @@index([authorId])
+  @@index([orgId])
+  @@index([folderId])
+  @@index([isPublished])
+  @@index([updatedAt])
+}
+
+model Block {
+  id         String   @id @default(cuid())
+  type       String
+  content    Json     @default("{}")
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model Permission {
+  id         String       @id @default(cuid())
+  level      PermissionLevel @default(VIEW)
+  userId     String
+  documentId String
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, documentId])
+  @@index([documentId])
+}
+
+model DocumentVersion {
+  id         String   @id @default(cuid())
+  version    Int
+  title      String
+  content    Json
+  authorId   String
+  documentId String
+  createdAt  DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@unique([documentId, version])
+}
+
+model Comment {
+  id         String        @id @default(cuid())
+  content    String        @db.Text
+  selection  Json?
+  isResolved Boolean       @default(false)
+  authorId   String
+  documentId String
+
+  author   User     @relation("CommentAuthor", fields: [authorId], references: [id])
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  replies  CommentReply[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([documentId])
+  @@index([authorId])
+}
+
+model CommentReply {
+  id        String  @id @default(cuid())
+  content   String  @db.Text
+  authorId  String
+  commentId String
+
+  author  User    @relation("ReplyAuthor", fields: [authorId], references: [id])
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([commentId])
+}
+
+model Suggestion {
+  id           String   @id @default(cuid())
+  type         SuggestionType
+  originalText String   @db.Text
+  suggestedText String  @db.Text
+  explanation  String?  @db.Text
+  status       SuggestionStatus @default(PENDING)
+  authorId     String
+  documentId   String
+
+  author   User     @relation("SuggestionAuthor", fields: [authorId], references: [id])
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([documentId])
+  @@index([status])
+}
+
+model Template {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  content     Json     @default("{}")
+  category    String?
+  isPublic    Boolean  @default(false)
+  useCount    Int      @default(0)
+  authorId    String
+  orgId      String
+
+  author User         @relation("TemplateAuthor", fields: [authorId], references: [id])
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([category])
+}
+
+model Folder {
+  id         String   @id @default(cuid())
+  name       String
+  color      String?
+  icon       String?
+  parentId   String?
+  orgId      String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  parent   Folder?      @relation("FolderTree", fields: [parentId], references: [id])
+  children Folder[]     @relation("FolderTree")
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@index([orgId])
+  @@index([parentId])
+}
+
+model Activity {
+  id         String       @id @default(cuid())
+  type       ActivityType
+  metadata   Json?
+  userId     String
+  documentId String
+
+  user     User     @relation(fields: [userId], references: [id])
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([documentId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  userId    String
+  metadata  Json?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@index([userId, read])
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  stripeId    String   @unique
+  status      SubscriptionStatus
+  plan        Plan
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean @default(false)
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DocumentTag {
+  id         String @id @default(cuid())
+  name       String
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([name, documentId])
+  @@index([documentId])
+}
+
+enum Plan {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum PermissionLevel {
+  VIEW
+  COMMENT
+  EDIT
+  ADMIN
+}
+
+enum SuggestionType {
+  GRAMMAR
+  CLARITY
+  STYLE
+  REPHRASE
+  EXPAND
+  SHORTEN
+}
+
+enum SuggestionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  DISMISSED
+}
+
+enum ActivityType {
+  CREATE
+  UPDATE
+  DELETE
+  PUBLISH
+  COMMENT
+  SUGGESTION
+  SHARE
+  EXPORT
+}
+
+enum NotificationType {
+  MENTION
+  COMMENT
+  SUGGESTION
+  INVITE
+  SYSTEM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  UNPAID
+  TRIALING
+}
